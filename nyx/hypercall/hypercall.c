@@ -407,13 +407,19 @@ static void handle_hypercall_kafl_cr3(struct kvm_run *run,
     }
 }
 
+
+uint8_t kebugcheck_panic_handler_backup[0x100];
+uint8_t kebugcheck_panic_handler_backup2[0x100];
+int backup_is_dirty=0;
+int backup_is_dirty2=0;
+int is_sequence_flag = 0;
 static void handle_hypercall_kafl_submit_panic(struct kvm_run *run,
                                                CPUState       *cpu,
                                                uint64_t        hypercall_arg)
 {
-    if (is_called_in_fuzzing_mode("KVM_EXIT_KAFL_SUBMIT_PANIC")) {
-        return;
-    }
+    // if (is_called_in_fuzzing_mode("KVM_EXIT_KAFL_SUBMIT_PANIC")) {
+    //     return;
+    // }
 
     if (hypercall_enabled) {
         nyx_debug_p(CORE_PREFIX, "Panic address: %lx\n", hypercall_arg);
@@ -427,8 +433,30 @@ static void handle_hypercall_kafl_submit_panic(struct kvm_run *run,
             break;
         case mm_64_l4_paging:
         case mm_64_l5_paging:
-            write_virtual_memory(hypercall_arg, (uint8_t *)PANIC_PAYLOAD_64,
+            if(!backup_is_dirty)
+            {
+                read_virtual_memory(hypercall_arg, kebugcheck_panic_handler_backup, PAYLOAD_BUFFER_SIZE_64, cpu);
+                write_virtual_memory(hypercall_arg, (uint8_t *)PANIC_PAYLOAD_64,
                                  PAYLOAD_BUFFER_SIZE_64, cpu);
+                backup_is_dirty = 1;
+            }
+            else if(!backup_is_dirty2)
+            {
+                read_virtual_memory(hypercall_arg, kebugcheck_panic_handler_backup2, PAYLOAD_BUFFER_SIZE_64, cpu);
+                write_virtual_memory(hypercall_arg, (uint8_t *)PANIC_PAYLOAD_64,
+                                 PAYLOAD_BUFFER_SIZE_64, cpu);
+                backup_is_dirty2 = 1;
+            }
+            else if(backup_is_dirty2 && backup_is_dirty)
+            {
+                if(!is_sequence_flag)
+                    write_virtual_memory(hypercall_arg, (uint8_t *)kebugcheck_panic_handler_backup,
+                                    PAYLOAD_BUFFER_SIZE_64, cpu);
+                else
+                    write_virtual_memory(hypercall_arg, (uint8_t *)kebugcheck_panic_handler_backup2,
+                                    PAYLOAD_BUFFER_SIZE_64, cpu);
+            }
+
             break;
         default:
             abort();
